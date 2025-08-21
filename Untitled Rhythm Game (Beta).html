@@ -1,0 +1,1739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Untitled Rhythm Game (Beta)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1a202c; /* Dark background */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden; /* Hide scrollbars */
+            color: #e2e8f0; /* Light text */
+            transition: background-color 0.5s ease; /* Smooth transition for theme change */
+        }
+
+        .game-container {
+            width: 100%;
+            max-width: 500px; /* Max width for game area */
+            height: 700px;
+            background-color: #2d3748; /* Slightly lighter background for game */
+            border-radius: 1.5rem; /* Rounded corners */
+            box-shadow: 0 10px 15px rgba(0, 0, 0, 0.5);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            transition: all 0.7s ease-in-out; /* Smooth transition for expansion */
+        }
+        .game-container.expanded {
+            max-width: 95vw; /* Expand width */
+            height: 95vh; /* Expand height */
+            padding: 0.5rem; /* Adjust padding if needed for expanded view */
+        }
+
+        .lanes-container {
+            flex-grow: 1;
+            display: flex;
+            justify-content: space-around; /* Distribute lanes evenly */
+            position: relative; /* Essential for z-index and absolute children */
+            overflow: hidden; /* Ensure cubes stay within */
+            z-index: 5; /* Ensures lanes content is above potential siblings like HUD */
+        }
+        .lane {
+            flex-grow: 1; /* Allow lanes to grow and shrink */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative; /* Necessary for absolute positioning of children */
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 0 0.25rem; /* Small horizontal padding */
+        }
+        .lane:first-child { border-left: none; }
+        .lane:last-child { border-right: none; }
+
+        .falling-cube {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px; /* Size of falling cubes */
+            height: 70px;
+            border-radius: 0.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #edf2f7; /* Letter color */
+            user-select: none; /* Prevent text selection */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.1s ease-out; /* Smooth feedback */
+            z-index: 10; /* Make sure falling notes are on top */
+        }
+        .falling-cube.fade-out {
+            animation: fadeAndShrink 0.6s forwards;
+        }
+
+        @keyframes fadeAndShrink {
+            from { opacity: 1; transform: scale(1) translateX(-50%); }
+            to { opacity: 0; transform: scale(0.8) translateX(-50%); }
+        }
+
+        .target-cube {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px;
+            height: 70px;
+            border: 3px solid rgba(255, 255, 255, 0.3); /* Softer border */
+            border-radius: 0.5rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #a0aec0; /* Hint color */
+            user-select: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            transition: background-color 0.5s ease, border-color 0.5s ease; /* Smooth transition for theme change */
+            z-index: 10; /* Make sure target notes are on top */
+        }
+        .target-cube.space-key {
+            font-size: 1.2rem; /* Smaller font for "SPACE" text */
+            padding: 0 0.2rem;
+            width: 90%; /* Make spacebar wider */
+            height: 50px; /* Make spacebar shorter */
+            border-radius: 0.75rem; /* More rounded */
+        }
+
+        /* Note Skin Specific Styles */
+        .falling-cube.circle-skin,
+        .target-cube.circle-skin {
+            border-radius: 50%; /* Make them circular */
+        }
+
+        .falling-cube.arrow-skin svg,
+        .target-cube.arrow-skin svg {
+            width: 100%;
+            height: 100%;
+            padding: 5px; /* Add some padding so the arrow doesn't touch the edge */
+            box-sizing: border-box; /* Include padding in the element's total width and height */
+        }
+
+        /* Note Colors */
+        .note-purple { background-color: #8A2BE2; /* BlueViolet */ }
+        .note-blue { background-color: #0000FF; }
+        .note-green { background-color: #008000; }
+        .note-red { background-color: #FF0000; }
+        .note-gray { background-color: #808080; /* Gray for diamond/spacebar */ }
+
+
+        /* Feedback colors - these should override the note colors on hit/miss */
+        .hit { background-color: #48bb78 !important; /* Green for hit */ }
+        .miss { background-color: #e53e3e !important; /* Red for miss */ }
+
+        .game-controls {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            padding: 1rem;
+            transition: all 0.7s ease-in-out; /* Smooth transition for movement */
+        }
+        .game-controls.hidden-bottom {
+            transform: translateY(100vh); /* Move completely off-screen downwards */
+            opacity: 0;
+            pointer-events: none; /* Disable interaction when hidden */
+        }
+        .game-button {
+            px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full shadow-lg transition duration-200 ease-in-out transform hover:scale-105;
+        }
+
+        /* Overlay Base Styles (Removed transitions) */
+        .overlay-base {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* No scale animation */
+            background-color: #2d3748;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            text-align: center;
+            color: #e2e8f0;
+            display: none; /* Always hidden by default */
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: background-color 0.5s ease, color 0.5s ease; /* Smooth transition for theme change */
+        }
+
+        /* Specific Overlay Adjustments */
+        #message-box {
+            font-size: 1.5rem;
+            max-width: 400px;
+            width: 90%;
+        }
+        #message-box button {
+            margin-top: 1rem;
+            padding: 0.75rem 1.5rem;
+            background-color: #4299e1;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.2s;
+        }
+        #message-box button:hover {
+            background-color: #3182ce;
+        }
+
+        #settings-panel {
+            font-size: 1.2rem;
+            max-width: 400px;
+            width: 90%;
+            gap: 1rem;
+            max-height: 90vh; /* Allow vertical scrolling if content is too tall */
+            overflow-y: auto; /* Enable scrolling */
+        }
+        #settings-panel input, #settings-panel select {
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            border: 1px solid #4a5568;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            text-align: center;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+        }
+        .settings-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .settings-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .settings-min-max-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: center;
+        }
+        .settings-min-max-group input {
+            width: 80px;
+        }
+        #settings-panel button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.2s;
+        }
+        #apply-settings-button { background-color: #48bb78; color: white; }
+        #apply-settings-button:hover { background-color: #38a169; }
+        #close-settings-button { background-color: #e53e3e; color: white; }
+        #close-settings-button:hover { background-color: #c53030; }
+
+
+        #countdown-overlay {
+            font-size: 8rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            background-color: rgba(0, 0, 0, 0.7); /* Darker background for full overlay */
+            position: absolute; /* Relative to game-container */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 1.5rem; /* Match game container */
+            z-index: 999;
+        }
+        /* Style for the actual countdown number within the overlay */
+        #countdown-overlay .time-left {
+            font-size: 8rem; /* Inherit or explicitly set */
+            line-height: 1; /* Adjust vertical spacing */
+        }
+
+        #pause-menu-overlay {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            background-color: rgba(0, 0, 0, 0.7); /* Darker background for full overlay */
+            position: absolute; /* Relative to game-container */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 1.5rem; /* Match game container */
+            gap: 1.5rem;
+            z-index: 998;
+        }
+        #pause-menu-overlay button {
+            padding: 0.75rem 2rem;
+            background-color: #4299e1;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 1.2rem;
+            transition: background-color 0.2s;
+            min-width: 150px;
+        }
+        #pause-menu-overlay button:hover {
+            background-color: #3182ce;
+        }
+
+
+        /* Removed #ghost-tap-timer-overlay styles */
+
+        /* Rating feedback styles */
+        .rating-feedback {
+            position: fixed; /* Changed to fixed to position relative to viewport */
+            font-size: 1.5rem;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+            animation: fadeOutUp 0.8s forwards;
+            pointer-events: none;
+            white-space: nowrap;
+
+            /* Adjusted positioning to be off the game panel */
+            left: 50%; /* Start at the center of the viewport */
+            /* Shift left by half the max game container width (250px) plus an additional offset (80px) */
+            transform: translateX(calc(-250px - 80px)); /* Shifts origin left, then element left */
+            top: 20%; /* Consistent vertical position relative to viewport */
+        }
+        .perfect-rating { color: #81c784; }
+        .sick-rating { color: #a5d6a7; }
+        .good-rating { color: #fff176; }
+        .okay-rating { color: #ffb74d; }
+        .bad-rating { color: #e57373; }
+        .mistype-rating, .combo-break-rating { color: #ff0000; } /* Added combo-break-rating */
+        .ghost-tap-feedback {
+            color: #63b3ed;
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.7);
+            animation: fadeOutUp 0.6s forwards;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        /* Removed .hold-release-feedback */
+
+        @keyframes fadeOutUp {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(-50px); }
+        }
+
+        #fps-overlay {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px 8px;
+            border-radius: 5px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-gray-200">
+
+    <div id="fps-overlay">FPS: 0</div> <!-- FPS counter overlay -->
+
+    <div class="game-container" id="game-container">
+        <div class="lanes-container" id="lanes-container">
+            <!-- Lanes will be dynamically generated here by JavaScript -->
+        </div>
+
+        <!-- Removed Ghost Tap Break Timer Overlay -->
+
+        <!-- Pause Menu Overlay -->
+        <div id="pause-menu-overlay" class="overlay-base">
+            PAUSED
+            <button id="resume-button">Resume</button>
+            <button id="restart-button">Restart</button>
+            <button id="quit-button">Quit to Menu</button>
+        </div>
+
+        <!-- Countdown Overlay -->
+        <div id="countdown-overlay" class="overlay-base">
+            <span class="time-left" id="countdown-time">3</span>
+        </div>
+
+        <div class="hud p-4 bg-gray-700 rounded-b-xl flex flex-col justify-between items-start text-sm sm:text-base">
+            <div class="flex justify-between w-full mb-2">
+                <div class="flex flex-col items-start">
+                    <span id="kps-display" class="font-bold text-lg sm:text-xl">KPS: 0.0</span>
+                    <span id="time-display">Time: 0ms</span>
+                </div>
+                <div class="flex flex-col items-end">
+                    <span id="score-display" class="font-bold text-lg sm:text-xl">Score: 0</span>
+                    <span id="mistypes-display" class="font-bold text-lg sm:text-xl">Mistypes: 0</span>
+                    <span id="accuracy-display">Accuracy: 100%</span>
+                </div>
+            </div>
+
+            <!-- Detailed Hit Counts -->
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:text-sm w-full">
+                <div class="flex flex-col items-start">
+                    <span class="perfect-rating">Perfect: <span id="perfect-hits">0</span></span>
+                    <span class="sick-rating">Early Sick: <span id="early-sick-hits">0</span></span>
+                    <span class="good-rating">Early Good: <span id="early-good-hits">0</span></span>
+                    <span class="okay-rating">Early Okay: <span id="early-okay-hits">0</span></span>
+                    <span class="bad-rating">Early Bad: <span id="early-bad-hits">0</span></span>
+                </div>
+                <div class="flex flex-col items-start">
+                    <span class="sick-rating">Late Sick: <span id="late-sick-hits">0</span></span>
+                    <span class="good-rating">Late Good: <span id="late-good-hits">0</span></span>
+                    <span class="okay-rating">Late Okay: <span id="late-okay-hits">0</span></span>
+                    <span class="bad-rating">Late Bad: <span id="late-bad-hits">0</span></span>
+                    <!-- NEW: Total Hits Display -->
+                    <span class="text-white">Total: <span id="total-hits">0</span></span>
+                    <!-- NEW: Combo Counter -->
+                    <span class="text-white mt-1 font-bold text-lg">Combo: <span id="combo-display">0</span></span>
+                </div>
+            </div>
+            <!-- New Accuracy and Score Rating Displays -->
+            <div class="flex justify-between w-full mt-2 text-base sm:text-lg">
+                <span id="accuracy-rating-display" class="font-bold"></span>
+                <span id="score-rating-display" class="font-bold"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="game-controls mt-4" id="game-controls">
+        <button id="start-button" class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-full shadow-lg transition duration-200 ease-in-out transform hover:scale-105">
+            Start Game
+        </button>
+        <button id="settings-button" class="px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-full shadow-lg transition duration-200 ease-in-out transform hover:scale-105">
+            Settings
+        </button>
+    </div>
+
+    <!-- Custom Message Box (Main Menu / Welcome Screen) -->
+    <div id="message-box" class="overlay-base">
+        <p id="message-content"></p>
+        <button id="close-message-box">Got It!</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="overlay-base">
+        <h2 class="text-2xl font-bold mb-4">Game Settings</h2>
+        <div class="settings-item">
+            <p class="mb-2">Enter 4 unique characters for the main lanes:</p>
+            <input type="text" id="lane-keys-input" maxlength="4" placeholder="e.g., ASDF" class="uppercase" />
+        </div>
+        <div class="settings-checkbox-item">
+            <input type="checkbox" id="use-five-keys-checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+            <label for="use-five-keys-checkbox" class="text-lg">Use 5th Key (SPACEBAR between S & D)</label>
+        </div>
+        <div class="settings-item">
+            <p class="mb-2">Note Skin:</p>
+            <select id="note-skin-select" class="w-full">
+                <option value="cubes">Cubes</option>
+                <option value="arrows">Arrows (FNF Style)</option>
+                <option value="circles">Circles</option>
+            </select>
+        </div>
+        <div class="settings-item">
+            <p class="mb-2">Scroll Direction:</p>
+            <select id="scroll-direction-select" class="w-full">
+                <option value="upscroll">Upscroll</option>
+                <option value="downscroll">Downscroll</option>
+            </select>
+        </div>
+        <div class="settings-item">
+            <p class="mb-2">Scroll Speed (1 is default, higher is faster):</p>
+            <input type="number" id="scroll-speed-input" min="0.1" step="0.1" value="1" />
+        </div>
+        <div class="settings-item">
+            <p class="mb-2">Difficulty:</p>
+            <select id="difficulty-select" class="w-full">
+                <option value="easy">Easy</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Hard</option>
+                <option value="expert">Expert</option>
+            </select>
+        </div>
+        <div class="settings-checkbox-item">
+            <input type="checkbox" id="enable-botplay-checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded" />
+            <label for="enable-botplay-checkbox" class="text-lg">Enable Botplay</label>
+        </div>
+        <div class="settings-item" id="bot-accuracy-setting" style="display: none;">
+            <p class="mb-2">Bot Accuracy (%):</p>
+            <input type="number" id="bot-accuracy-input" min="0" max="100" value="100" />
+        </div>
+        <div class="settings-checkbox-item">
+            <input type="checkbox" id="mistype-penalty-checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded" checked />
+            <label for="mistype-penalty-checkbox" class="text-lg">Apply Mistype Penalty (-50 Score, Red Note)</label>
+        </div>
+        <div class="settings-checkbox-item">
+            <input type="checkbox" id="enable-ghost-tapping-checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded" checked />
+            <label for="enable-ghost-tapping-checkbox" class="text-lg">Enable Ghost Tapping (No Miss Penalty)</label>
+        </div>
+        <div class="settings-item">
+            <p class="mb-2">Note Spawn Interval (ms):</p>
+            <div class="settings-min-max-group">
+                Min: <input type="number" id="min-spawn-interval-input" min="100" max="5000" value="1000" />
+                Max: <input type="number" id="max-spawn-interval-input" min="100" max="5000" value="2000" />
+            </div>
+        </div>
+        <button id="apply-settings-button" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg transition duration-200 ease-in-out transform hover:scale-105">
+            Apply Settings
+        </button>
+        <button id="close-settings-button" class="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-full shadow-lg transition duration-200 ease-in-out transform hover:scale-105">
+            Close
+        </button>
+    </div>
+
+    <script>
+        const lanesContainer = document.getElementById('lanes-container');
+        let lanes = [];
+        let targetCubes = [];
+
+        const kpsDisplay = document.getElementById('kps-display');
+        const timeDisplay = document.getElementById('time-display');
+        const mistypesDisplay = document.getElementById('mistypes-display');
+        const accuracyDisplay = document.getElementById('accuracy-display');
+        const scoreDisplay = document.getElementById('score-display');
+
+        const perfectHitsDisplay = document.getElementById('perfect-hits');
+        const earlySickHitsDisplay = document.getElementById('early-sick-hits');
+        const earlyGoodHitsDisplay = document.getElementById('early-good-hits');
+        const earlyOkayHitsDisplay = document.getElementById('early-okay-hits');
+        const earlyBadHitsDisplay = document.getElementById('early-bad-hits');
+        const lateSickHitsDisplay = document.getElementById('late-sick-hits');
+        const lateGoodHitsDisplay = document.getElementById('late-good-hits');
+        const lateOkayHitsDisplay = document.getElementById('late-okay-hits');
+        const lateBadHitsDisplay = document.getElementById('late-bad-hits');
+        const totalHitsDisplay = document.getElementById('total-hits');
+        const comboDisplay = document.getElementById('combo-display');
+
+        const accuracyRatingDisplay = document.getElementById('accuracy-rating-display');
+        const scoreRatingDisplay = document.getElementById('score-rating-display');
+
+        const fpsOverlay = document.getElementById('fps-overlay');
+        const gameContainer = document.getElementById('game-container'); // Get game container
+        const gameControls = document.getElementById('game-controls'); // Get game controls
+
+        const startButton = document.getElementById('start-button');
+        const settingsButton = document.getElementById('settings-button');
+        const messageBox = document.getElementById('message-box');
+        const messageContent = document.getElementById('message-content');
+        const closeMessageBoxButton = document.getElementById('close-message-box');
+        const settingsPanel = document.getElementById('settings-panel');
+        const laneKeysInput = document.getElementById('lane-keys-input');
+        const applySettingsButton = document.getElementById('apply-settings-button');
+        const closeSettingsButton = document.getElementById('close-settings-button');
+        const scrollSpeedInput = document.getElementById('scroll-speed-input');
+        const useFiveKeysCheckbox = document.getElementById('use-five-keys-checkbox');
+        const difficultySelect = document.getElementById('difficulty-select');
+        const enableBotplayCheckbox = document.getElementById('enable-botplay-checkbox');
+        const botAccuracyInput = document.getElementById('bot-accuracy-input');
+        const botAccuracySetting = document.getElementById('bot-accuracy-setting');
+        const mistypePenaltyCheckbox = document.getElementById('mistype-penalty-checkbox');
+        const enableGhostTappingCheckbox = document.getElementById('enable-ghost-tapping-checkbox');
+        const minSpawnIntervalInput = document.getElementById('min-spawn-interval-input');
+        const maxSpawnIntervalInput = document.getElementById('max-spawn-interval-input');
+        const noteSkinSelect = document.getElementById('note-skin-select'); // Note skin select
+        const scrollDirectionSelect = document.getElementById('scroll-direction-select'); // Scroll direction select
+
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        const countdownTimeDisplay = document.getElementById('countdown-time');
+        const pauseMenuOverlay = document.getElementById('pause-menu-overlay');
+        const resumeButton = document.getElementById('resume-button');
+        const restartButton = document.getElementById('restart-button');
+        const quitButton = document.getElementById('quit-button');
+        const breakTimeLeftDisplay = document.getElementById('break-time-left');
+
+        let gameActive = false;
+        let isPaused = false;
+        let useFiveKeysMode = false;
+        let currentDifficulty = 'normal';
+        let isBotplayActive = false;
+        let botAccuracyPercentage = 100;
+        let startTime = 0;
+        let score = 0;
+        let mistypes = 0;
+        let perfectHits = 0;
+        let earlySickHits = 0;
+        let earlyGoodHits = 0;
+        let earlyOkayHits = 0;
+        let earlyBadHits = 0;
+        let lateSickHits = 0;
+        let lateGoodHits = 0;
+        let lateOkayHits = 0;
+        let lateBadHits = 0;
+        let totalCorrectHits = 0;
+        let combo = 0;
+        let lastFrameTime = 0;
+        let currentCubes = [];
+        let animationFrameId;
+        let applyMistypePenalty = true;
+        let enableGhostTapping = true;
+        let wasGamePausedBySettings = false;
+        let currentNoteSkin = 'cubes';
+        let currentScrollDirection = 'upscroll'; // Default to upscroll
+
+        const BASE_CUBE_SPEED = 0.15;
+        let CUBE_SPEED_MULTIPLIER = 1.0;
+        let CUBE_SPEED = BASE_CUBE_SPEED * CUBE_SPEED_MULTIPLIER;
+
+        const NOTE_SAFE_FRAME_MS = 10;
+        let MIN_SPAWN_INTERVAL = Math.max(100, NOTE_SAFE_FRAME_MS);
+        let MAX_SPAWN_INTERVAL = Math.max(5000, NOTE_SAFE_FRAME_MS);
+        let nextSpawnTime = 0;
+        const GAME_START_DELAY_MS = 3000;
+
+        // FIXED_TARGET_OFFSET_PX is the padding from the edge (top for upscroll, bottom for downscroll)
+        const FIXED_TARGET_OFFSET_PX = 16; // 1rem is 16px
+        const RATING_WINDOW_MS_PER_SIDE = 50;
+        // MAX_RATED_PIXEL_OFFSET is the distance a note can be from the target line (in pixels) and still be rated
+        let MAX_RATED_PIXEL_OFFSET = RATING_WINDOW_MS_PER_SIDE * CUBE_SPEED;
+
+        const SCORE_VALUES = {
+            'Perfect': 100,
+            'Sick': 75,
+            'Good': 50,
+            'Okay': 25,
+            'Bad': 10,
+            'Mistype': -50
+        };
+
+        let BASE_LANE_KEYS = ['a', 's', 'd', 'f'];
+        let LANE_ORDER_KEYS = [];
+
+        const PATTERN_NOTE_INTERVAL_MS = Math.max(150, NOTE_SAFE_FRAME_MS);
+        const STACK_REPEAT_INTERVAL_MS = Math.max(400, NOTE_SAFE_FRAME_MS);
+        const SPAM_NOTE_INTERVAL_MS = Math.max(20, NOTE_SAFE_FRAME_MS);
+        const SPAM_SECTION_REPEAT_DELAY_MS = Math.max(100, NOTE_SAFE_FRAME_MS);
+
+        // SVG Arrow paths - using Material Design Icons paths for consistency and simplicity
+        const ARROW_SVGS = {
+            'left': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>',
+            'down': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>',
+            'up': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.59 15.41L12 10.83l-4.59 4.58L6 14l6-6 6 6z"/></svg>',
+            'right': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>',
+            'diamond': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l-8 8 8 8 8-8z"/></svg>' // Using a rotated square for diamond
+        };
+
+        const LANE_COLORS = {
+            'left': 'note-purple',
+            'down': 'note-blue',
+            'up': 'note-green',
+            'right': 'note-red',
+            'diamond': 'note-gray' // Gray for diamond/spacebar
+        };
+
+        // FPS counter variables
+        let frameTimes = [];
+        const FPS_SMOOTHING_FRAMES = 60; // Average over 60 frames for smoothing
+
+
+        /**
+         * Generic function to show an overlay instantly.
+         * @param {HTMLElement} element - The overlay element to show.
+         * @param {string} displayType - CSS display property (e.g., 'flex', 'block').
+         */
+        function showOverlay(element, displayType = 'flex') {
+            element.style.display = displayType;
+        }
+
+        /**
+         * Generic function to hide an overlay instantly.
+         * @param {HTMLElement} element - The overlay element to hide.
+         * @param {Function} [callback] - Function to call after the element is hidden.
+         */
+        function hideOverlay(element, callback = null) {
+            element.style.display = 'none';
+            if (callback) {
+                callback();
+            }
+        }
+
+
+        function showMessage(msg, callback = null) {
+            messageContent.textContent = msg;
+            showOverlay(messageBox);
+            closeMessageBoxButton.onclick = () => {
+                hideOverlay(messageBox, callback);
+            };
+        }
+
+        /**
+         * Determines the color class based on the lane index and key configuration.
+         * @param {number} laneIndex - The index of the lane.
+         * @param {string} keyChar - The character for the lane.
+         * @returns {string} The CSS class for the color (e.g., 'note-purple').
+         */
+        function getLaneColorClass(laneIndex, keyChar) {
+            if (useFiveKeysMode) {
+                if (laneIndex === 0) return LANE_COLORS['left'];
+                if (laneIndex === 1) return LANE_COLORS['down'];
+                if (laneIndex === 2 && keyChar === ' ') return LANE_COLORS['diamond'];
+                if (laneIndex === 3) return LANE_COLORS['up'];
+                if (laneIndex === 4) return LANE_COLORS['right'];
+            } else {
+                if (laneIndex === 0) return LANE_COLORS['left'];
+                if (laneIndex === 1) return LANE_COLORS['down'];
+                if (laneIndex === 2) return LANE_COLORS['up'];
+                if (laneIndex === 3) return LANE_COLORS['right'];
+            }
+            return ''; // Should not happen with valid input
+        }
+
+
+        function renderLanes() {
+            lanesContainer.innerHTML = '';
+            currentCubes.forEach(cube => cube.element.remove());
+            currentCubes = [];
+            lanes = [];
+            targetCubes = [];
+
+            LANE_ORDER_KEYS = [...BASE_LANE_KEYS];
+
+            if (useFiveKeysMode) {
+                const sIndex = BASE_LANE_KEYS.indexOf('s');
+                const insertIndex = sIndex !== -1 ? sIndex + 1 : 2; // Insert space after 's' if 's' exists, otherwise default
+                LANE_ORDER_KEYS.splice(insertIndex, 0, ' ');
+            }
+
+            // Create lane divs and append to container first to get accurate offsetHeights
+            LANE_ORDER_KEYS.forEach((keyChar, index) => {
+                const laneDiv = document.createElement('div');
+                laneDiv.classList.add('lane');
+                laneDiv.id = `lane-${index}`;
+                lanesContainer.appendChild(laneDiv); // Append first
+            });
+
+            lanes = document.querySelectorAll('.lane'); // Update global lanes variable
+            
+            // Now, iterate again to add target cubes and correctly position them based on lane heights
+            lanes.forEach((laneDiv, index) => {
+                const keyChar = LANE_ORDER_KEYS[index];
+
+                const targetCubeDiv = document.createElement('div');
+                targetCubeDiv.classList.add('target-cube');
+                targetCubeDiv.dataset.key = keyChar;
+
+                // Add note skin class
+                if (currentNoteSkin === 'arrows') {
+                    targetCubeDiv.classList.add('arrow-skin');
+                } else if (currentNoteSkin === 'circles') {
+                    targetCubeDiv.classList.add('circle-skin');
+                }
+                
+                // Add color class
+                targetCubeDiv.classList.add(getLaneColorClass(index, keyChar));
+
+                if (keyChar === ' ') {
+                    targetCubeDiv.classList.add('space-key');
+                }
+
+                if (currentNoteSkin === 'arrows') {
+                    let arrowType;
+                    if (useFiveKeysMode) {
+                        if (index === 0) arrowType = 'left';
+                        else if (index === 1) arrowType = 'down';
+                        else if (index === 2 && keyChar === ' ') arrowType = 'diamond';
+                        else if (index === 3) arrowType = 'up';
+                        else if (index === 4) arrowType = 'right';
+                    } else {
+                        if (index === 0) arrowType = 'left';
+                        else if (index === 1) arrowType = 'down';
+                        else if (index === 2) arrowType = 'up';
+                        else if (index === 3) arrowType = 'right';
+                    }
+                    targetCubeDiv.innerHTML = ARROW_SVGS[arrowType] || '';
+                } else { // cubes or circles
+                    targetCubeDiv.textContent = keyChar === ' ' ? 'SPACE' : keyChar.toUpperCase();
+                }
+                
+                laneDiv.appendChild(targetCubeDiv);
+
+                // Calculate and apply target position *after* the target is in the DOM for its offsetHeight
+                const cubeActualHeight = targetCubeDiv.offsetHeight; // Get rendered height of the target cube
+                let targetYForCalculations; // This will be the TOP of the target cube relative to its lane's TOP
+
+                if (currentScrollDirection === 'downscroll') {
+                    targetCubeDiv.style.removeProperty('top'); // Ensure 'top' is not set
+                    targetCubeDiv.style.bottom = `${FIXED_TARGET_OFFSET_PX}px`;
+                    // targetYForCalculations is the top position of the target cube relative to the lane's top
+                    targetYForCalculations = laneDiv.offsetHeight - cubeActualHeight - FIXED_TARGET_OFFSET_PX;
+                } else { // upscroll
+                    targetCubeDiv.style.removeProperty('bottom'); // Ensure 'bottom' is not set
+                    targetCubeDiv.style.top = `${FIXED_TARGET_OFFSET_PX}px`;
+                    targetYForCalculations = FIXED_TARGET_OFFSET_PX;
+                }
+                targetCubeDiv.dataset.targetY = targetYForCalculations; // Store for hit detection
+            });
+
+            targetCubes = document.querySelectorAll('.target-cube'); // Update global targetCubes variable
+
+            MAX_RATED_PIXEL_OFFSET = RATING_WINDOW_MS_PER_SIDE * CUBE_SPEED;
+        }
+
+        /**
+         * Spawns a single note in a specific or random lane.
+         * @param {number} laneIndex - The index of the lane to spawn in, or -1 for random.
+         */
+        function spawnSingleCube(laneIndex = -1) {
+            if (!gameActive || isPaused) return;
+
+            let chosenLaneIndex;
+            if (laneIndex === -1) {
+                chosenLaneIndex = Math.floor(Math.random() * LANE_ORDER_KEYS.length);
+            } else {
+                chosenLaneIndex = laneIndex;
+            }
+
+            const letter = LANE_ORDER_KEYS[chosenLaneIndex].toUpperCase();
+            const cube = document.createElement('div');
+            cube.classList.add('falling-cube');
+
+            // Add note skin class
+            if (currentNoteSkin === 'arrows') {
+                cube.classList.add('arrow-skin');
+            } else if (currentNoteSkin === 'circles') {
+                cube.classList.add('circle-skin');
+            }
+
+            // Add color class
+            cube.classList.add(getLaneColorClass(chosenLaneIndex, letter.toLowerCase()));
+
+
+            if (currentNoteSkin === 'arrows') {
+                let arrowType;
+                if (useFiveKeysMode) {
+                    if (chosenLaneIndex === 0) arrowType = 'left';
+                    else if (chosenLaneIndex === 1) arrowType = 'down';
+                    else if (chosenLaneIndex === 2 && letter === ' ') arrowType = 'diamond';
+                    else if (chosenLaneIndex === 3) arrowType = 'up';
+                    else if (chosenLaneIndex === 4) arrowType = 'right';
+                } else {
+                    if (chosenLaneIndex === 0) arrowType = 'left';
+                    else if (chosenLaneIndex === 1) arrowType = 'down';
+                    else if (chosenLaneIndex === 2) arrowType = 'up';
+                    else if (chosenLaneIndex === 3) arrowType = 'right';
+                }
+                cube.innerHTML = ARROW_SVGS[arrowType] || '';
+            } else { // cubes or circles
+                cube.textContent = letter === ' ' ? 'SPACE' : letter;
+            }
+
+
+            const lane = lanes[chosenLaneIndex];
+            const targetCubeDom = targetCubes[chosenLaneIndex]; // Get the DOM element
+            // Ensure targetY is read from the dataset to get the correct value relative to the lane's top
+            const targetY = parseFloat(targetCubeDom.dataset.targetY);
+
+            let initialCubeY;
+            if (currentScrollDirection === 'downscroll') {
+                // For downscroll, notes start at the top, just above the visible area.
+                initialCubeY = -cube.offsetHeight;
+            } else { // upscroll
+                // For upscroll, notes start at the bottom, just below the visible area.
+                initialCubeY = lane.offsetHeight;
+            }
+            
+            cube.style.top = `${initialCubeY}px`; // Set initial top property
+            lane.appendChild(cube);
+
+            currentCubes.push({
+                element: cube,
+                letter: letter,
+                laneIndex: chosenLaneIndex,
+                y: initialCubeY, // Store y as the top position of the cube relative to its lane container
+                targetY: targetY // This is the fixed target position (top of target cube relative to lane's top) for hit detection
+            });
+        }
+
+        /**
+         * Spawns multiple regular notes in unique random lanes.
+         * @param {number} numToSpawn - The number of notes to attempt to spawn.
+         */
+        function spawnMultipleCubes(numToSpawn) {
+            if (!gameActive || isPaused) return;
+
+            const availableLaneIndices = Array.from({ length: LANE_ORDER_KEYS.length }, (_, i) => i);
+            const lanesToSpawnIn = [];
+
+            const actualNumToSpawn = Math.min(numToSpawn, availableLaneIndices.length);
+
+            while (lanesToSpawnIn.length < actualNumToSpawn) {
+                const randomIndex = Math.floor(Math.random() * availableLaneIndices.length);
+                const chosenLaneIndex = availableLaneIndices.splice(randomIndex, 1)[0];
+                lanesToSpawnIn.push(chosenLaneIndex);
+            }
+
+            lanesToSpawnIn.forEach(laneIndex => {
+                spawnSingleCube(laneIndex);
+            });
+        }
+
+        /**
+         * Spawns a sequence of notes in a "stair" pattern.
+         * @param {Array<string>} sequence - An array of key characters for the stair (e.g., ['a', 's', 'd', 'f']).
+         * @param {number} intervalBetweenNotes - Delay in ms between notes in the stair.
+         */
+        function spawnStairNotes(sequence, intervalBetweenNotes) {
+            let delay = 0;
+            sequence.forEach(keyChar => {
+                const laneIndex = LANE_ORDER_KEYS.indexOf(keyChar);
+                if (laneIndex !== -1) {
+                    setTimeout(() => {
+                        spawnSingleCube(laneIndex);
+                    }, delay);
+                    delay += intervalBetweenNotes;
+                }
+            });
+            nextSpawnTime = performance.now() + delay;
+        }
+
+        /**
+         * Spawns a "jack" pattern (same note repeated).
+         * @param {string} keyChar - The key character to repeat.
+         * @param {number} count - Number of times to repeat.
+         * @param {number} intervalBetweenNotes - Delay in ms between repetitions.
+         */
+        function spawnJackNotes(keyChar, count, intervalBetweenNotes) {
+            let delay = 0;
+            const laneIndex = LANE_ORDER_KEYS.indexOf(keyChar);
+            if (laneIndex === -1) return;
+
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    spawnSingleCube(laneIndex);
+                }, delay);
+                delay += intervalBetweenNotes;
+            }
+            nextSpawnTime = performance.now() + delay;
+        }
+
+        /**
+         * Spawns a "triple stack" pattern (3 simultaneous notes, repeated).
+         * @param {Array<string>} keys - An array of 3 unique key characters for the stack.
+         * @param {number} repeatCount - Number of times to repeat the stack.
+         * @param {number} intervalBetweenStacks - Delay in ms between each stack repetition.
+         */
+        function spawnTripleStack(keys, repeatCount, intervalBetweenStacks) {
+            let delay = 0;
+            for (let r = 0; r < repeatCount; r++) {
+                setTimeout(() => {
+                    keys.forEach(keyChar => {
+                        const laneIndex = LANE_ORDER_KEYS.indexOf(keyChar);
+                        if (laneIndex !== -1) {
+                            spawnSingleCube(laneIndex);
+                        }
+                    });
+                }, delay);
+                delay += intervalBetweenStacks;
+            }
+            nextSpawnTime = performance.now() + delay;
+        }
+
+        /**
+         * Spawns a "spam section" pattern (full lane sequence repeated many times).
+         * @param {number} repeatCount - The number of times to repeat the full sequence.
+         */
+        function spawnSpamSection(repeatCount) {
+            if (!gameActive || isPaused) return;
+
+            const initialSequence = [...LANE_ORDER_KEYS];
+            const invertedSequence = [...LANE_ORDER_KEYS].reverse();
+            const chosenSequence = Math.random() < 0.5 ? initialSequence : invertedSequence;
+
+            let totalDelay = 0;
+
+            for (let r = 0; r < repeatCount; r++) {
+                chosenSequence.forEach((keyChar, index) => {
+                    const laneIndex = LANE_ORDER_KEYS.indexOf(keyChar);
+                    if (laneIndex !== -1) {
+                        setTimeout(() => {
+                            spawnSingleCube(laneIndex);
+                        }, totalDelay);
+                        totalDelay += SPAM_NOTE_INTERVAL_MS;
+                    }
+                });
+                totalDelay += SPAM_SECTION_REPEAT_DELAY_MS; // Delay between full sequence repetitions
+            }
+            nextSpawnTime = performance.now() + totalDelay;
+        }
+
+
+        function spawnNextSetOfCubes() {
+            if (!gameActive || isPaused) return;
+
+            const numLanes = LANE_ORDER_KEYS.length;
+            let patternType = 'single';
+            const rand = Math.random();
+
+            switch (currentDifficulty) {
+                case 'easy':
+                    patternType = 'single';
+                    break;
+                case 'normal':
+                    if (rand < 0.6) patternType = 'single';
+                    else if (rand < 0.9) patternType = 'doubleTap';
+                    else patternType = 'jack3';
+                    break;
+                case 'hard':
+                    if (rand < 0.4) patternType = 'single';
+                    else if (rand < 0.65) patternType = 'jack';
+                    else if (rand < 0.85) patternType = 'stair';
+                    else patternType = 'tripleStack1';
+                    break;
+                case 'expert':
+                    if (rand < 0.2) patternType = 'single';
+                    else if (rand < 0.45) patternType = 'jackExpert';
+                    else if (rand < 0.7) patternType = 'stair';
+                    else if (rand < 0.9) patternType = 'tripleStack';
+                    else patternType = 'spamSection';
+                    break;
+            }
+
+            switch (patternType) {
+                case 'single':
+                    spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                    nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                    break;
+
+                case 'doubleTap':
+                    const doubleKey = LANE_ORDER_KEYS[Math.floor(Math.random() * numLanes)];
+                    spawnJackNotes(doubleKey, 2, PATTERN_NOTE_INTERVAL_MS);
+                    break;
+
+                case 'jack3':
+                    const jack3Key = LANE_ORDER_KEYS[Math.floor(Math.random() * numLanes)];
+                    spawnJackNotes(jack3Key, 3, PATTERN_NOTE_INTERVAL_MS);
+                    break;
+
+                case 'jack':
+                    const jackKey = LANE_ORDER_KEYS[Math.floor(Math.random() * numLanes)];
+                    const jackCountHard = Math.floor(Math.random() * 2) + 3;
+                    spawnJackNotes(jackKey, jackCountHard, PATTERN_NOTE_INTERVAL_MS);
+                    break;
+
+                case 'jackExpert':
+                    const jackExpertKey = LANE_ORDER_KEYS[Math.floor(Math.random() * numLanes)];
+                    const jackCountExpert = Math.floor(Math.random() * 4) + 3;
+                    spawnJackNotes(jackExpertKey, jackCountExpert, PATTERN_NOTE_INTERVAL_MS);
+                    break;
+
+                case 'stair':
+                    if (numLanes >= 4) {
+                        let stairKeys = LANE_ORDER_KEYS.filter(k => k !== ' ').slice(0, 4);
+                        if (stairKeys.length === 4) {
+                            if (Math.random() < 0.5) {
+                                spawnStairNotes(stairKeys, PATTERN_NOTE_INTERVAL_MS);
+                            } else {
+                                spawnStairNotes([...stairKeys].reverse(), PATTERN_NOTE_INTERVAL_MS);
+                            }
+                        } else {
+                            spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                            nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                        }
+                    } else {
+                        spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                        nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                    }
+                    break;
+
+                case 'tripleStack1':
+                    if (numLanes >= 3) {
+                        const stackKeys1 = [];
+                        const availableKeys1 = [...LANE_ORDER_KEYS];
+                        while (stackKeys1.length < 3 && availableKeys1.length > 0) {
+                            const randomIndex = Math.floor(Math.random() * availableKeys1.length);
+                            stackKeys1.push(availableKeys1.splice(randomIndex, 1)[0]);
+                        }
+                        if (stackKeys1.length === 3) {
+                            spawnTripleStack(stackKeys1, 1, STACK_REPEAT_INTERVAL_MS);
+                        } else {
+                            spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                            nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                        }
+                    } else {
+                        spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                        nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                    }
+                    break;
+
+                case 'tripleStack':
+                    if (numLanes >= 3) {
+                        const stackKeys = [];
+                        const availableKeys = [...LANE_ORDER_KEYS];
+                        while (stackKeys.length < 3 && availableKeys.length > 0) {
+                            const randomIndex = Math.floor(Math.random() * availableKeys.length);
+                            stackKeys.push(availableKeys.splice(randomIndex, 1)[0]);
+                        }
+                        if (stackKeys.length === 3) {
+                            const repeatCount = Math.floor(Math.random() * 2) + 2;
+                            spawnTripleStack(stackKeys, repeatCount, STACK_REPEAT_INTERVAL_MS);
+                        } else {
+                            spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                            nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                        }
+                    } else {
+                        spawnMultipleCubes(Math.random() < 0.7 ? 1 : 2);
+                        nextSpawnTime = performance.now() + Math.random() * (MAX_SPAWN_INTERVAL - MIN_SPAWN_INTERVAL) + MIN_SPAWN_INTERVAL;
+                    }
+                    break;
+
+                case 'spamSection':
+                    const spamRepeatCount = Math.floor(Math.random() * 91) + 10;
+                    spawnSpamSection(spamRepeatCount);
+                    break;
+            }
+        }
+
+        /**
+         * Displays rating feedback (Perfect, Sick, Mistype, etc.).
+         * Now uses fixed positioning relative to the viewport.
+         * @param {string} ratingType - The type of rating (e.g., 'Perfect', 'Mistype').
+         * @param {number} [timeOffset=0] - The timing offset in milliseconds (for Early/Late ratings).
+         */
+        function displayRatingFeedback(ratingType, timeOffset = 0) {
+            const feedbackDiv = document.createElement('div');
+            let text = ratingType + '!';
+            let cssClass = ratingType.toLowerCase().replace(/\s/g, '-') + '-rating';
+
+            // Special handling for Combo Break
+            if (ratingType === 'Combo Break') {
+                text = 'Combo Break!';
+                cssClass = 'combo-break-rating'; // Use the new class
+            } else if (ratingType !== 'Perfect' && ratingType !== 'Mistype' && ratingType !== 'Ghost Tap') {
+                text += ` (${timeOffset >= 0 ? '+' : ''}${timeOffset.toFixed(0)}ms)`;
+            }
+
+            feedbackDiv.classList.add('rating-feedback', cssClass);
+            feedbackDiv.textContent = text;
+
+            document.body.appendChild(feedbackDiv);
+
+            feedbackDiv.addEventListener('animationend', () => {
+                feedbackDiv.remove();
+            });
+        }
+
+        function gameLoop(currentTime) {
+            if (!gameActive || isPaused) {
+                lastFrameTime = currentTime;
+                animationFrameId = requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            const deltaTime = currentTime - lastFrameTime;
+            lastFrameTime = currentTime;
+
+            // Add deltaTime to frameTimes for FPS calculation
+            frameTimes.push(deltaTime);
+            if (frameTimes.length > FPS_SMOOTHING_FRAMES) {
+                frameTimes.shift(); // Remove oldest frame time
+            }
+
+
+            for (let i = currentCubes.length - 1; i >= 0; i--) {
+                const cube = currentCubes[i];
+                
+                if (currentScrollDirection === 'downscroll') {
+                    cube.y += CUBE_SPEED * deltaTime; // Move downwards (top increases)
+                } else { // upscroll
+                    cube.y -= CUBE_SPEED * deltaTime; // Move upwards (top decreases)
+                }
+                cube.element.style.top = `${cube.y}px`; // Always apply to 'top' property
+
+                // Botplay logic
+                if (isBotplayActive) {
+                    const pixelOffset = cube.y - cube.targetY; // Current top - target top
+                    // Bot attempts to hit when it's within a window of the target
+                    let shouldBotHit = false;
+                    // For downscroll, bot hits when note's top passes or is at target's top
+                    // For upscroll, bot hits when note's top passes or is at target's top (moving upwards)
+                    if (currentScrollDirection === 'downscroll') {
+                        if (pixelOffset >= 0) shouldBotHit = true;
+                    } else { // upscroll
+                        if (pixelOffset <= 0) shouldBotHit = true;
+                    }
+
+                    if (shouldBotHit) {
+                        let isMistype = false;
+                        const overallMistypeChance = (100 - botAccuracyPercentage) / 100;
+
+                        if (Math.random() < overallMistypeChance) {
+                            isMistype = true;
+                        }
+
+                        if (isMistype) {
+                            mistypes++;
+                            if (combo > 0) {
+                                displayRatingFeedback('Combo Break');
+                            }
+                            combo = 0;
+                            if (applyMistypePenalty) {
+                                score += SCORE_VALUES.Mistype;
+                                displayRatingFeedback('Mistype', 0);
+                            } else {
+                                cube.element.classList.add('miss');
+                            }
+                            cube.element.classList.add('fade-out');
+                            cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                            currentCubes.splice(i, 1);
+                            updateHUD();
+                            continue;
+                        } else {
+                            // Bot successfully "hits" the note, with simulated timing offset
+                            const lowerBound = Math.max(0, botAccuracyPercentage - 5);
+                            const upperBound = Math.min(100, botAccuracyPercentage + 10);
+                            const effectiveAccuracy = lowerBound + (Math.random() * (upperBound - lowerBound));
+
+                            const maxSimulatedOffsetMs = RATING_WINDOW_MS_PER_SIDE * 2;
+                            const offsetFactor = (100 - effectiveAccuracy) / 100;
+                            // Time offset: negative is early, positive is late relative to ideal hit
+                            const simulatedTimeOffsetMs = (Math.random() * 2 - 1) * maxSimulatedOffsetMs * offsetFactor * 0.9;
+
+                            let rating = '';
+                            const absSimulatedTimeOffset = Math.abs(simulatedTimeOffsetMs);
+
+                            if (absSimulatedTimeOffset <= 10) { rating = 'Perfect'; }
+                            else if (absSimulatedTimeOffset <= 20) { rating = 'Sick'; }
+                            else if (absSimulatedTimeOffset <= 30) { rating = 'Good'; }
+                            else if (absSimulatedTimeOffset <= 40) { rating = 'Okay'; }
+                            else { rating = 'Bad'; }
+
+                            score += SCORE_VALUES[rating];
+                            combo++;
+                            totalCorrectHits++;
+
+                            if (rating === 'Perfect') perfectHits++;
+                            else { // Differentiate Early/Late for rating display
+                                let timePrefix = '';
+                                if (currentScrollDirection === 'downscroll') {
+                                    timePrefix = simulatedTimeOffsetMs < 0 ? 'Early ' : 'Late ';
+                                } else { // upscroll
+                                    timePrefix = simulatedTimeOffsetMs > 0 ? 'Early ' : 'Late ';
+                                }
+                                rating = timePrefix + rating;
+
+                                if (timePrefix === 'Early ') {
+                                    if (rating.includes('Sick')) earlySickHits++;
+                                    else if (rating.includes('Good')) earlyGoodHits++;
+                                    else if (rating.includes('Okay')) earlyOkayHits++;
+                                    else if (rating.includes('Bad')) earlyBadHits++;
+                                } else {
+                                    if (rating.includes('Sick')) lateSickHits++;
+                                    else if (rating.includes('Good')) lateGoodHits++;
+                                    else if (rating.includes('Okay')) lateOkayHits++;
+                                    else if (rating.includes('Bad')) lateBadHits++;
+                                }
+                            }
+
+                            displayRatingFeedback(rating, simulatedTimeOffsetMs);
+                            cube.element.classList.add('hit');
+                            cube.element.classList.add('fade-out');
+                            cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                            currentCubes.splice(i, 1);
+                            updateHUD();
+                            continue;
+                        }
+                    }
+                } else { // Human play miss detection
+                    const pixelOffset = cube.y - cube.targetY; // Current note top minus target note top
+                    
+                    // A note is missed if it passes the entire hit window without being pressed.
+                    // The hit window is [targetY - MAX_RATED_PIXEL_OFFSET, targetY + MAX_RATED_PIXEL_OFFSET]
+                    if (currentScrollDirection === 'downscroll') {
+                        // In downscroll, notes move downwards (y increases). Miss if y goes beyond target + offset.
+                        if (pixelOffset > MAX_RATED_PIXEL_OFFSET) {
+                            mistypes++;
+                            if (combo > 0) { displayRatingFeedback('Combo Break'); }
+                            combo = 0;
+                            if (applyMistypePenalty) {
+                                score += SCORE_VALUES.Mistype;
+                                displayRatingFeedback('Mistype', 0);
+                            } else {
+                                cube.element.classList.add('miss');
+                            }
+                            cube.element.classList.add('fade-out');
+                            cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                            currentCubes.splice(i, 1);
+                            updateHUD();
+                            continue;
+                        }
+                    } else { // upscroll
+                        // In upscroll, notes move upwards (y decreases). Miss if y goes beyond target - offset.
+                        if (pixelOffset < -MAX_RATED_PIXEL_OFFSET) {
+                            mistypes++;
+                            if (combo > 0) { displayRatingFeedback('Combo Break'); }
+                            combo = 0;
+                            if (applyMistypePenalty) {
+                                score += SCORE_VALUES.Mistype;
+                                displayRatingFeedback('Mistype', 0);
+                            } else {
+                                cube.element.classList.add('miss');
+                            }
+                            cube.element.classList.add('fade-out');
+                            cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                            currentCubes.splice(i, 1);
+                            updateHUD();
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if (currentTime > nextSpawnTime) {
+                spawnNextSetOfCubes();
+            }
+
+            updateHUD();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function handleKeyPress(event) {
+            const pressedKey = event.key.toLowerCase();
+
+            if (pressedKey === 'enter') {
+                togglePause();
+                return;
+            }
+
+            if (!gameActive || isPaused || isBotplayActive) return;
+
+            let hitProcessed = false;
+            let isGhostTapCandidate = false;
+
+            const activeTargetKeys = [...LANE_ORDER_KEYS];
+
+            if (!activeTargetKeys.includes(pressedKey)) {
+                 mistypes++;
+                 if (combo > 0) {
+                    displayRatingFeedback('Combo Break');
+                 }
+                 combo = 0;
+                 if (applyMistypePenalty) {
+                    score += SCORE_VALUES.Mistype;
+                    displayRatingFeedback('Mistype', 0);
+                 }
+                 updateHUD();
+                 return;
+            } else {
+                isGhostTapCandidate = true;
+            }
+
+            for (let i = currentCubes.length - 1; i >= 0; i--) {
+                const cube = currentCubes[i];
+                if (cube.letter.toLowerCase() === pressedKey) {
+                    const pixelOffset = cube.y - cube.targetY;
+                    // timeOffset_ms is positive for late, negative for early (relative to scroll direction)
+                    const timeOffset_ms = pixelOffset / CUBE_SPEED; 
+                    const absTimeOffset_ms = Math.abs(timeOffset_ms);
+
+                    if (absTimeOffset_ms <= RATING_WINDOW_MS_PER_SIDE) { 
+                        hitProcessed = true;
+
+                        let rating = '';
+                        if (absTimeOffset_ms <= 10) { rating = 'Perfect'; }
+                        else if (absTimeOffset_ms <= 20) { rating = 'Sick'; }
+                        else if (absTimeOffset_ms <= 30) { rating = 'Good'; }
+                        else if (absTimeOffset_ms <= 40) { rating = 'Okay'; }
+                        else { rating = 'Bad'; }
+
+                        score += SCORE_VALUES[rating];
+                        combo++;
+                        totalCorrectHits++;
+
+                        if (rating === 'Perfect') perfectHits++;
+                        else { // Differentiate Early/Late for rating display
+                            let timePrefix = '';
+                            if (currentScrollDirection === 'downscroll') {
+                                // For downscroll: negative timeOffset_ms means hit before target (early)
+                                timePrefix = timeOffset_ms < 0 ? 'Early ' : 'Late ';
+                            } else { // upscroll
+                                // For upscroll: positive timeOffset_ms means hit before target (early)
+                                timePrefix = timeOffset_ms > 0 ? 'Early ' : 'Late ';
+                            }
+                            rating = timePrefix + rating;
+
+                            if (timePrefix === 'Early ') {
+                                if (rating.includes('Sick')) earlySickHits++;
+                                else if (rating.includes('Good')) earlyGoodHits++;
+                                else if (rating.includes('Okay')) earlyOkayHits++;
+                                else if (rating.includes('Bad')) earlyBadHits++;
+                            } else {
+                                if (rating.includes('Sick')) lateSickHits++;
+                                else if (rating.includes('Good')) lateGoodHits++;
+                                else if (rating.includes('Okay')) lateOkayHits++;
+                                else if (rating.includes('Bad')) lateBadHits++;
+                            }
+                        }
+
+                        displayRatingFeedback(rating, timeOffset_ms);
+                        cube.element.classList.add('hit');
+                        cube.element.classList.add('fade-out');
+                        cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                        currentCubes.splice(i, 1);
+                        break;
+                    } else {
+                        // This means the note was pressed outside the active hit window but matched a key.
+                        mistypes++;
+                        if (combo > 0) {
+                            displayRatingFeedback('Combo Break');
+                        }
+                        combo = 0;
+                        if (applyMistypePenalty) {
+                            score += SCORE_VALUES.Mistype;
+                            displayRatingFeedback('Mistype', 0);
+                        } else {
+                            cube.element.classList.add('miss');
+                        }
+                        cube.element.classList.add('fade-out');
+                        cube.element.addEventListener('animationend', () => cube.element.remove(), {once: true});
+                        currentCubes.splice(i, 1);
+                        hitProcessed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isGhostTapCandidate && !hitProcessed) {
+                if (combo > 0) {
+                    displayRatingFeedback('Combo Break');
+                }
+                combo = 0;
+                if (enableGhostTapping) {
+                    displayRatingFeedback('Ghost Tap');
+                } else {
+                    mistypes++;
+                    if (applyMistypePenalty) {
+                        score += SCORE_VALUES.Mistype;
+                        displayRatingFeedback('Mistype', 0);
+                    }
+                }
+            }
+            updateHUD();
+        }
+
+        function handleKeyRelease(event) {
+            // This function is currently empty as hold notes were removed.
+        }
+
+        function togglePause() {
+            if (!gameActive || isPaused) return;
+
+            isPaused = !isPaused;
+            if (isPaused) {
+                showOverlay(pauseMenuOverlay);
+                cancelAnimationFrame(animationFrameId);
+            } else {
+                hideOverlay(pauseMenuOverlay);
+                lastFrameTime = performance.now();
+                animationFrameId = requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function updateHUD() {
+            const currentTime = performance.now();
+            const currentElapsedTime = gameActive ? (currentTime - (startTime || performance.now())) : 0; // in milliseconds
+            
+            const elapsedTimeSeconds = currentElapsedTime / 1000;
+            const kps = elapsedTimeSeconds > 0 ? (totalCorrectHits / elapsedTimeSeconds) : 0;
+
+            kpsDisplay.textContent = `KPS: ${kps.toFixed(1)}`;
+            timeDisplay.textContent = `Time: ${currentElapsedTime.toFixed(0)}ms`;
+            mistypesDisplay.textContent = `Mistypes: ${mistypes}`;
+            
+            const totalOpportunities = totalCorrectHits + mistypes;
+            let accuracy = 100;
+            if (totalOpportunities > 0) {
+                accuracy = ((totalCorrectHits / totalOpportunities) * 100);
+            }
+            accuracyDisplay.textContent = `Accuracy: ${accuracy.toFixed(1)}%`;
+
+            let accuracyRating = '';
+            if (accuracy === 100) {
+                accuracyRating = 'Excellent!';
+            } else if (accuracy >= 90) {
+                accuracyRating = 'Great';
+            } else if (accuracy >= 80) {
+                accuracyRating = 'Good';
+            } else if (accuracy === 69) {
+                accuracyRating = 'Haha, funny accuracy';
+            } else if (accuracy >= 70) {
+                accuracyRating = 'Meh';
+            } else if (accuracy >= 60) {
+                accuracyRating = 'Uuh...';
+            } else if (accuracy >= 50) {
+                accuracyRating = 'Bruh';
+            } else if (accuracy >= 40) {
+                accuracyRating = 'You suck...';
+            } else {
+                accuracyRating = 'please play a different game.';
+            }
+            accuracyRatingDisplay.textContent = `Accuracy Rating: ${accuracyRating}`;
+
+            scoreDisplay.textContent = `Score: ${score}`;
+
+            let scoreRating = '';
+            if (mistypes === 0 && totalCorrectHits > 0) {
+                scoreRating = 'PFC';
+            } else if (mistypes > 1000) {
+                scoreRating = 'Bro, how do you even get this many misses???';
+            }
+            else if (mistypes < 10) {
+                scoreRating = 'SDCB';
+            } else {
+                scoreRating = 'Clear';
+            }
+            scoreRatingDisplay.textContent = `Score Rating: ${scoreRating}`;
+
+
+            perfectHitsDisplay.textContent = perfectHits;
+            earlySickHitsDisplay.textContent = earlySickHits;
+            earlyGoodHitsDisplay.textContent = earlyGoodHits;
+            earlyOkayHitsDisplay.textContent = earlyOkayHits;
+            earlyBadHitsDisplay.textContent = earlyBadHits;
+            lateSickHitsDisplay.textContent = lateSickHits;
+            lateGoodHitsDisplay.textContent = lateGoodHits;
+            lateOkayHitsDisplay.textContent = lateOkayHits;
+            lateBadHitsDisplay.textContent = lateBadHits;
+
+            totalHitsDisplay.textContent = totalCorrectHits;
+            comboDisplay.textContent = combo;
+
+            const averageDeltaTime = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+            const fps = averageDeltaTime > 0 ? (1000 / averageDeltaTime) : 0;
+            fpsOverlay.textContent = `FPS: ${fps.toFixed(0)}`;
+        }
+
+        function startCountdown() {
+            gameActive = false;
+            isPaused = false;
+            hideOverlay(pauseMenuOverlay);
+            hideOverlay(messageBox);
+
+            gameControls.classList.add('hidden-bottom');
+            gameContainer.classList.add('expanded');
+
+            setTimeout(() => {
+                showOverlay(countdownOverlay);
+                let count = 3;
+                countdownTimeDisplay.textContent = count;
+
+                const countdownInterval = setInterval(() => {
+                    count--;
+                    if (count > 0) {
+                        countdownTimeDisplay.textContent = count;
+                    } else if (count === 0) {
+                        countdownTimeDisplay.textContent = 'GO!';
+                    } else {
+                        clearInterval(countdownInterval);
+                        hideOverlay(countdownOverlay);
+                        setTimeout(actualStartGame, 0);
+                    }
+                }, 1000);
+            }, 700);
+        }
+
+        function actualStartGame() {
+            currentCubes.forEach(cube => cube.element.remove());
+            currentCubes = [];
+
+            gameActive = true;
+            isPaused = false;
+            startTime = performance.now();
+            score = 0;
+            mistypes = 0;
+            perfectHits = 0;
+            earlySickHits = 0;
+            earlyGoodHits = 0;
+            earlyOkayHits = 0;
+            earlyBadHits = 0;
+            lateSickHits = 0;
+            lateGoodHits = 0;
+            lateOkayHits = 0;
+            lateBadHits = 0;
+            totalCorrectHits = 0;
+            combo = 0;
+            frameTimes = [];
+            updateHUD();
+            nextSpawnTime = performance.now();
+            spawnNextSetOfCubes();
+
+            lastFrameTime = performance.now();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function resetGameToMainMenuState() {
+            gameActive = false;
+            isPaused = false;
+            cancelAnimationFrame(animationFrameId);
+            currentCubes.forEach(cube => cube.element.remove());
+            currentCubes = [];
+
+            hideOverlay(pauseMenuOverlay);
+            hideOverlay(countdownOverlay);
+            hideOverlay(settingsPanel);
+
+            gameControls.classList.remove('hidden-bottom');
+            gameContainer.classList.remove('expanded');
+
+            score = 0;
+            mistypes = 0;
+            perfectHits = 0;
+            earlySickHits = 0;
+            earlyGoodHits = 0;
+            earlyOkayHits = 0;
+            earlyBadHits = 0;
+            lateSickHits = 0;
+            lateGoodHits = 0;
+            lateOkayHits = 0;
+            lateBadHits = 0;
+            totalCorrectHits = 0;
+            combo = 0;
+            frameTimes = [];
+            updateHUD();
+
+            renderLanes();
+            showMessage("Welcome to my take on Rhythm Games! Use 'ENTER' to pause. Set up your keys, speed, difficulty, and penalty options in 'Settings'. Press 'Start Game' to begin!");
+        }
+
+        function applySettings() {
+            const inputKeys = laneKeysInput.value.toLowerCase().trim();
+            if (inputKeys.length !== 4) {
+                showMessage("Please enter exactly 4 unique characters for the main lanes (e.g., ASDF).");
+                return;
+            }
+
+            const uniqueChars = new Set(inputKeys.split(''));
+            if (uniqueChars.size !== 4) {
+                showMessage("Please enter 4 unique characters for the main lanes.");
+                return;
+            }
+
+            BASE_LANE_KEYS = inputKeys.split('');
+            useFiveKeysMode = useFiveKeysCheckbox.checked;
+            currentDifficulty = difficultySelect.value;
+            currentNoteSkin = noteSkinSelect.value;
+            currentScrollDirection = scrollDirectionSelect.value; // Read scroll direction
+
+            isBotplayActive = enableBotplayCheckbox.checked;
+            const botAcc = parseInt(botAccuracyInput.value);
+            if (isBotplayActive && (isNaN(botAcc) || botAcc < 0 || botAcc > 100)) {
+                showMessage("Please enter a valid Bot Accuracy percentage between 0 and 100.");
+                return;
+            }
+            botAccuracyPercentage = botAcc;
+
+            botAccuracySetting.style.display = isBotplayActive ? 'flex' : 'none';
+
+            applyMistypePenalty = mistypePenaltyCheckbox.checked;
+            enableGhostTapping = enableGhostTappingCheckbox.checked;
+
+            const minSpawn = parseInt(minSpawnIntervalInput.value);
+            const maxSpawn = parseInt(maxSpawnIntervalInput.value);
+            
+            if (isNaN(minSpawn) || isNaN(maxSpawn) || minSpawn < NOTE_SAFE_FRAME_MS || maxSpawn > 5000 || minSpawn > maxSpawn) {
+                showMessage(`Please enter valid note spawn intervals between ${NOTE_SAFE_FRAME_MS}ms and 5000ms, with Min <= Max.`);
+                return;
+            }
+            MIN_SPAWN_INTERVAL = Math.max(minSpawn, NOTE_SAFE_FRAME_MS);
+            MAX_SPAWN_INTERVAL = Math.max(maxSpawn, NOTE_SAFE_FRAME_MS);
+            
+            if (currentDifficulty === 'expert') {
+                MIN_SPAWN_INTERVAL = NOTE_SAFE_FRAME_MS;
+                MAX_SPAWN_INTERVAL = NOTE_SAFE_FRAME_MS + 50;
+            }
+
+            renderLanes(); // Re-render lanes with new settings
+            const newSpeed = parseFloat(scrollSpeedInput.value);
+            if (isNaN(newSpeed) || newSpeed <= 0) {
+                showMessage("Please enter a valid positive number for scroll speed.");
+                return;
+            }
+            CUBE_SPEED_MULTIPLIER = newSpeed;
+            CUBE_SPEED = BASE_CUBE_SPEED * CUBE_SPEED_MULTIPLIER;
+            MAX_RATED_PIXEL_OFFSET = RATING_WINDOW_MS_PER_SIDE * CUBE_SPEED;
+
+            hideOverlay(settingsPanel);
+            resetGameToMainMenuState();
+        }
+
+        startButton.addEventListener('click', startCountdown);
+        document.addEventListener('keydown', handleKeyPress);
+        
+        settingsButton.addEventListener('click', () => {
+            wasGamePausedBySettings = gameActive;
+
+            if (messageBox.style.display === 'flex') {
+                hideOverlay(messageBox, () => {
+                    if (wasGamePausedBySettings) {
+                        togglePause();
+                    }
+                    showOverlay(settingsPanel);
+                });
+            } else {
+                if (wasGamePausedBySettings) {
+                    togglePause();
+                }
+                showOverlay(settingsPanel);
+            }
+            
+            laneKeysInput.value = BASE_LANE_KEYS.join('').toUpperCase();
+            scrollSpeedInput.value = CUBE_SPEED_MULTIPLIER;
+            useFiveKeysCheckbox.checked = useFiveKeysMode;
+            difficultySelect.value = currentDifficulty;
+            noteSkinSelect.value = currentNoteSkin;
+            scrollDirectionSelect.value = currentScrollDirection; // Set selected scroll direction
+            enableBotplayCheckbox.checked = isBotplayActive;
+            botAccuracyInput.value = botAccuracyPercentage;
+            botAccuracySetting.style.display = enableBotplayCheckbox.checked ? 'flex' : 'none';
+
+            mistypePenaltyCheckbox.checked = applyMistypePenalty;
+            enableGhostTappingCheckbox.checked = enableGhostTapping;
+            minSpawnIntervalInput.value = MIN_SPAWN_INTERVAL;
+            maxSpawnIntervalInput.value = MAX_SPAWN_INTERVAL;
+        });
+
+        enableBotplayCheckbox.addEventListener('change', () => {
+            botAccuracySetting.style.display = enableBotplayCheckbox.checked ? 'flex' : 'none';
+        });
+        
+        applySettingsButton.addEventListener('click', applySettings);
+        
+        closeSettingsButton.addEventListener('click', () => {
+            hideOverlay(settingsPanel);
+            if (wasGamePausedBySettings) {
+                togglePause();
+            } else {
+                showMessage("Welcome to my take on Rhythm Games! Use 'ENTER' to pause. Set up your keys, speed, difficulty, and penalty options in 'Settings'. Press 'Start Game' to begin!");
+            }
+        });
+
+        resumeButton.addEventListener('click', togglePause);
+        restartButton.addEventListener('click', startCountdown);
+        quitButton.addEventListener('click', resetGameToMainMenuState);
+
+        window.onload = function() {
+            resetGameToMainMenuState();
+        };
+    </script>
+</body>
+</html>
